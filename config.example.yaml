@@ -1,0 +1,17 @@
+smtp:
+  listen: ":2525"
+  username: "mailescrow"
+  password: "changeme"
+
+relay:
+  host: "smtp.example.com"
+  port: 465
+  username: "relay-user"
+  password: "relay-password"
+  tls: true
+
+grpc:
+  listen: ":9090"
+
+db:
+  path: "mailescrow.db"

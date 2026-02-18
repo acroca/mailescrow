@@ -1,0 +1,32 @@
+version: "2"
+
+linters:
+  # Start from the default set and add extras.
+  # Defaults: errcheck, gosimple, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose      # unclosed HTTP response bodies
+    - gocritic       # opinionated but useful style checks
+    - misspell       # common spelling mistakes in comments/strings
+    - nilerr         # returning nil alongside a non-nil error
+    - noctx          # HTTP requests sent without context
+    - prealloc       # slice pre-allocation hints
+    - unconvert      # unnecessary type conversions
+
+  settings:
+    gocritic:
+      disabled-checks:
+        - ifElseChain  # subjective; often clearer with if/else
+    misspell:
+      locale: US
+
+  exclusions:
+    rules:
+      # Test files: relax checks that are noisy in test setup code.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gocritic
+          - noctx
+
+run:
+  timeout: 5m

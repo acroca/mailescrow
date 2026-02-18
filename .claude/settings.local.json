@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "WebSearch",
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "WebFetch(domain:tip.golang.org)",
+      "Bash(go version:*)",
+      "Bash(go mod tidy:*)",
+      "Bash(golangci-lint run:*)",
+      "Bash(gh release list:*)",
+      "Bash(golangci-lint:*)"
+    ]
+  }
+}
