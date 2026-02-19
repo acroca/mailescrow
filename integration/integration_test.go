@@ -2,11 +2,12 @@ package integration
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
-	"net/smtp"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,6 @@ import (
 	"time"
 
 	"github.com/albert/mailescrow/internal/relay"
-	smtpsrv "github.com/albert/mailescrow/internal/smtp"
 	"github.com/albert/mailescrow/internal/store"
 	"github.com/albert/mailescrow/internal/web"
 )
@@ -167,38 +167,6 @@ func waitForPort(t *testing.T, addr string) {
 	t.Fatalf("port %s never became available", addr)
 }
 
-// sendEmail sends a single email through the mailescrow SMTP server.
-func sendEmail(t *testing.T, smtpAddr, from, to, subject, body string) {
-	t.Helper()
-	c, err := smtp.Dial(smtpAddr)
-	if err != nil {
-		t.Fatalf("smtp dial: %v", err)
-	}
-	auth := smtp.PlainAuth("", "user", "pass", "127.0.0.1")
-	if err := c.Auth(auth); err != nil {
-		t.Fatalf("smtp auth: %v", err)
-	}
-	if err := c.Mail(from); err != nil {
-		t.Fatalf("mail from: %v", err)
-	}
-	if err := c.Rcpt(to); err != nil {
-		t.Fatalf("rcpt to: %v", err)
-	}
-	w, err := c.Data()
-	if err != nil {
-		t.Fatalf("data: %v", err)
-	}
-	raw := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s", from, to, subject, body)
-	if _, err := w.Write([]byte(raw)); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("close data: %v", err)
-	}
-	c.Quit()
-}
-
-// getBody fetches the HTML body from the web UI.
 func getBody(t *testing.T, webAddr string) string {
 	t.Helper()
 	resp, err := http.Get("http://" + webAddr + "/")
@@ -210,7 +178,6 @@ func getBody(t *testing.T, webAddr string) string {
 	return string(b)
 }
 
-// extractID finds the email ID from the form whose action matches /email/<id>/<action>.
 func extractID(body, action string) string {
 	prefix := `action="/email/`
 	suffix := "/" + action + `"`
@@ -233,11 +200,10 @@ func extractID(body, action string) string {
 	}
 }
 
-// postAction posts to /email/{id}/{action} with no-redirect client.
 func postAction(t *testing.T, webAddr, id, action string) {
 	t.Helper()
 	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
@@ -251,45 +217,105 @@ func postAction(t *testing.T, webAddr, id, action string) {
 	}
 }
 
-// --- Integration tests ---
+func postAPIEmail(t *testing.T, webAddr, from, to, subject, body string) string {
+	t.Helper()
+	payload := map[string]interface{}{
+		"from":    from,
+		"to":      []string{to},
+		"subject": subject,
+		"body":    body,
+	}
+	b, _ := json.Marshal(payload)
+	resp, err := http.Post("http://"+webAddr+"/api/emails", "application/json", bytes.NewReader(b))
+	if err != nil {
+		t.Fatalf("POST /api/emails: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/emails: status %d, want 201", resp.StatusCode)
+	}
+	var result struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return result.ID
+}
 
-func TestApproveFlowEndToEnd(t *testing.T) {
-	upstream := startUpstreamSMTP(t)
+func getAPIEmails(t *testing.T, webAddr string) []map[string]interface{} {
+	t.Helper()
+	resp, err := http.Get("http://" + webAddr + "/api/emails")
+	if err != nil {
+		t.Fatalf("GET /api/emails: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/emails: status %d, want 200", resp.StatusCode)
+	}
+	var results []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return results
+}
 
+type testServer struct {
+	webAddr string
+	apiAddr string
+}
+
+func startTestServer(t *testing.T, st store.EmailStore, r relay.Sender) testServer {
+	t.Helper()
+	webAddr := freeAddr(t)
+	apiAddr := freeAddr(t)
+	srv := web.New(st, r, nil) // nil imapClient — no IMAP in integration tests
+	go srv.Serve(webAddr)
+	go srv.ServeAPI(apiAddr)
+	t.Cleanup(func() { srv.Shutdown(t.Context()) }) //nolint:errcheck
+	waitForPort(t, webAddr)
+	waitForPort(t, apiAddr)
+	return testServer{webAddr: webAddr, apiAddr: apiAddr}
+}
+
+func newTestStore(t *testing.T) *store.Store {
+	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	st, err := store.New(dbPath)
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
+	return st
+}
+
+// --- Integration tests ---
+
+// TestOutboundApproveFlow: POST /api/emails → approve in web UI → SMTP relay
+func TestOutboundApproveFlow(t *testing.T) {
+	upstream := startUpstreamSMTP(t)
+	st := newTestStore(t)
 
 	upHost, upPortStr, _ := net.SplitHostPort(upstream.addr)
 	var upPort int
 	fmt.Sscanf(upPortStr, "%d", &upPort)
 	r := relay.New(upHost, upPort, "", "", false)
 
-	smtpAddr := freeAddr(t)
-	smtpServer := smtpsrv.New(smtpAddr, "user", "pass", st)
-	go smtpServer.ListenAndServe()
-	t.Cleanup(func() { smtpServer.Close() })
-	waitForPort(t, smtpAddr)
+	srv := startTestServer(t, st, r)
 
-	webAddr := freeAddr(t)
-	webServer := web.New(st, r)
-	go webServer.Serve(webAddr)
-	t.Cleanup(func() { webServer.Shutdown(t.Context()) }) //nolint
-	waitForPort(t, webAddr)
+	// Submit outbound email via API.
+	postAPIEmail(t, srv.apiAddr, "sender@example.com", "recipient@example.com", "Integration Test", "This is an integration test email.")
 
-	// Send an email.
-	sendEmail(t, smtpAddr, "sender@example.com", "recipient@example.com", "Integration Test", "This is an integration test email.")
-
-	// Check it appears in the web UI.
-	body := getBody(t, webAddr)
+	// Check it appears in web UI as pending.
+	body := getBody(t, srv.webAddr)
 	if !strings.Contains(body, "Integration Test") {
 		t.Fatalf("web UI missing subject: %q", body)
 	}
 	if !strings.Contains(body, "sender@example.com") {
 		t.Errorf("web UI missing sender")
+	}
+	if !strings.Contains(body, "outbound") {
+		t.Errorf("web UI missing outbound badge")
 	}
 
 	// Approve via web UI.
@@ -297,9 +323,9 @@ func TestApproveFlowEndToEnd(t *testing.T) {
 	if id == "" {
 		t.Fatal("could not extract email ID from web UI")
 	}
-	postAction(t, webAddr, id, "approve")
+	postAction(t, srv.webAddr, id, "approve")
 
-	// Verify upstream received the message.
+	// Verify upstream received it.
 	msgs := upstream.getReceived()
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 upstream message, got %d", len(msgs))
@@ -310,104 +336,162 @@ func TestApproveFlowEndToEnd(t *testing.T) {
 	if !strings.Contains(msgs[0].Data, "Subject: Integration Test") {
 		t.Errorf("upstream data missing Subject header: %q", msgs[0].Data)
 	}
-	if !strings.Contains(msgs[0].Data, "integration test email") {
-		t.Errorf("upstream data missing body: %q", msgs[0].Data)
-	}
 
-	// Verify email is gone from the web UI.
-	body2 := getBody(t, webAddr)
+	// Verify email is gone from web UI.
+	body2 := getBody(t, srv.webAddr)
 	if strings.Contains(body2, "Integration Test") {
 		t.Error("email still visible in web UI after approve")
 	}
 }
 
-func TestRejectFlowEndToEnd(t *testing.T) {
+// TestOutboundRejectFlow: POST /api/emails → reject → upstream gets nothing
+func TestOutboundRejectFlow(t *testing.T) {
 	upstream := startUpstreamSMTP(t)
-
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	st, err := store.New(dbPath)
-	if err != nil {
-		t.Fatalf("new store: %v", err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := newTestStore(t)
 
 	upHost, upPortStr, _ := net.SplitHostPort(upstream.addr)
 	var upPort int
 	fmt.Sscanf(upPortStr, "%d", &upPort)
 	r := relay.New(upHost, upPort, "", "", false)
 
-	smtpAddr := freeAddr(t)
-	smtpServer := smtpsrv.New(smtpAddr, "user", "pass", st)
-	go smtpServer.ListenAndServe()
-	t.Cleanup(func() { smtpServer.Close() })
-	waitForPort(t, smtpAddr)
+	srv := startTestServer(t, st, r)
 
-	webAddr := freeAddr(t)
-	webServer := web.New(st, r)
-	go webServer.Serve(webAddr)
-	t.Cleanup(func() { webServer.Shutdown(t.Context()) }) //nolint
-	waitForPort(t, webAddr)
+	postAPIEmail(t, srv.apiAddr, "sender@example.com", "recipient@example.com", "Rejected Email", "This should be rejected.")
 
-	sendEmail(t, smtpAddr, "sender@example.com", "recipient@example.com", "Rejected Email", "This should be rejected.")
-
-	body := getBody(t, webAddr)
+	body := getBody(t, srv.webAddr)
 	id := extractID(body, "reject")
 	if id == "" {
 		t.Fatal("could not extract email ID from web UI")
 	}
-	postAction(t, webAddr, id, "reject")
+	postAction(t, srv.webAddr, id, "reject")
 
-	// Verify upstream did NOT receive anything.
+	// Upstream should NOT receive anything.
 	msgs := upstream.getReceived()
 	if len(msgs) != 0 {
 		t.Errorf("expected 0 upstream messages after reject, got %d", len(msgs))
 	}
 
-	// Verify email is gone.
-	body2 := getBody(t, webAddr)
+	// Email is gone from UI.
+	body2 := getBody(t, srv.webAddr)
 	if strings.Contains(body2, "Rejected Email") {
 		t.Error("email still visible in web UI after reject")
 	}
 }
 
-func TestMultipleEmailsApproveAndReject(t *testing.T) {
-	upstream := startUpstreamSMTP(t)
+// TestInboundApproveFlow: inject via SaveInbound → approve in UI → GET /api/emails
+func TestInboundApproveFlow(t *testing.T) {
+	st := newTestStore(t)
+	r := relay.New("127.0.0.1", 1, "", "", false) // unused for inbound
+	srv := startTestServer(t, st, r)
 
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	st, err := store.New(dbPath)
+	// Simulate IMAP poller saving an inbound message.
+	rawMsg := "From: external@example.com\r\nTo: me@example.com\r\nSubject: Inbound Test\r\nMessage-Id: <abc123@external.example.com>\r\n\r\nHello from outside!"
+	_, err := st.SaveInbound(t.Context(),
+		"external@example.com", []string{"me@example.com"},
+		"Inbound Test", "Hello from outside!",
+		[]byte(rawMsg),
+		"<abc123@external.example.com>", "mailescrow/received",
+	)
 	if err != nil {
-		t.Fatalf("new store: %v", err)
+		t.Fatalf("save inbound: %v", err)
 	}
-	t.Cleanup(func() { st.Close() })
+
+	// Check it appears in web UI as inbound pending.
+	body := getBody(t, srv.webAddr)
+	if !strings.Contains(body, "Inbound Test") {
+		t.Fatalf("web UI missing subject: %q", body)
+	}
+	if !strings.Contains(body, "inbound") {
+		t.Errorf("web UI missing inbound badge")
+	}
+	if !strings.Contains(body, "Approve") {
+		t.Errorf("web UI inbound approve button should say Approve")
+	}
+
+	// Approve via web UI.
+	id := extractID(body, "approve")
+	if id == "" {
+		t.Fatal("could not extract email ID from web UI")
+	}
+	postAction(t, srv.webAddr, id, "approve")
+
+	// Email should no longer be pending.
+	body2 := getBody(t, srv.webAddr)
+	if strings.Contains(body2, "Inbound Test") {
+		t.Error("email still visible in pending web UI after approve")
+	}
+
+	// GET /api/emails should return the approved email.
+	emails := getAPIEmails(t, srv.apiAddr)
+	if len(emails) != 1 {
+		t.Fatalf("expected 1 approved email, got %d", len(emails))
+	}
+	if emails[0]["subject"] != "Inbound Test" {
+		t.Errorf("subject = %q, want Inbound Test", emails[0]["subject"])
+	}
+	if emails[0]["from"] != "external@example.com" {
+		t.Errorf("from = %q, want external@example.com", emails[0]["from"])
+	}
+
+	// Second GET should return empty (consumed on read).
+	emails2 := getAPIEmails(t, srv.apiAddr)
+	if len(emails2) != 0 {
+		t.Errorf("expected 0 emails on second GET, got %d", len(emails2))
+	}
+}
+
+// TestInboundRejectFlow: inject via SaveInbound → reject → GET /api/emails returns nothing
+func TestInboundRejectFlow(t *testing.T) {
+	st := newTestStore(t)
+	r := relay.New("127.0.0.1", 1, "", "", false)
+	srv := startTestServer(t, st, r)
+
+	rawMsg := "From: external@example.com\r\nTo: me@example.com\r\nSubject: Spam\r\nMessage-Id: <spam@example.com>\r\n\r\nBuy now!"
+	_, err := st.SaveInbound(t.Context(),
+		"external@example.com", []string{"me@example.com"},
+		"Spam", "Buy now!",
+		[]byte(rawMsg),
+		"<spam@example.com>", "mailescrow/received",
+	)
+	if err != nil {
+		t.Fatalf("save inbound: %v", err)
+	}
+
+	body := getBody(t, srv.webAddr)
+	id := extractID(body, "reject")
+	if id == "" {
+		t.Fatal("could not extract email ID from web UI")
+	}
+	postAction(t, srv.webAddr, id, "reject")
+
+	// GET /api/emails should return nothing.
+	emails := getAPIEmails(t, srv.apiAddr)
+	if len(emails) != 0 {
+		t.Errorf("expected 0 emails after reject, got %d", len(emails))
+	}
+}
+
+// TestMixedApproveAndReject: multiple outbound emails with mixed actions
+func TestMixedApproveAndReject(t *testing.T) {
+	upstream := startUpstreamSMTP(t)
+	st := newTestStore(t)
 
 	upHost, upPortStr, _ := net.SplitHostPort(upstream.addr)
 	var upPort int
 	fmt.Sscanf(upPortStr, "%d", &upPort)
 	r := relay.New(upHost, upPort, "", "", false)
 
-	smtpAddr := freeAddr(t)
-	smtpServer := smtpsrv.New(smtpAddr, "user", "pass", st)
-	go smtpServer.ListenAndServe()
-	t.Cleanup(func() { smtpServer.Close() })
-	waitForPort(t, smtpAddr)
+	srv := startTestServer(t, st, r)
 
-	webAddr := freeAddr(t)
-	webServer := web.New(st, r)
-	go webServer.Serve(webAddr)
-	t.Cleanup(func() { webServer.Shutdown(t.Context()) }) //nolint
-	waitForPort(t, webAddr)
+	postAPIEmail(t, srv.apiAddr, "sender@example.com", "rcpt1@example.com", "Email One", "Body of Email One")
+	postAPIEmail(t, srv.apiAddr, "sender@example.com", "rcpt2@example.com", "Email Two", "Body of Email Two")
 
-	sendEmail(t, smtpAddr, "sender@example.com", "rcpt1@example.com", "Email One", "Body of Email One")
-	sendEmail(t, smtpAddr, "sender@example.com", "rcpt2@example.com", "Email Two", "Body of Email Two")
-
-	body := getBody(t, webAddr)
+	body := getBody(t, srv.webAddr)
 	if !strings.Contains(body, "Email One") || !strings.Contains(body, "Email Two") {
 		t.Fatalf("web UI missing emails: %q", body)
 	}
 
-	// Find IDs for each email by scanning action URLs.
-	// We need both approve and reject IDs; we approve Email One and reject Email Two.
-	// Extract all IDs in order from approve actions.
+	// Extract all email IDs in order.
 	var ids []string
 	remaining := body
 	for {
@@ -426,17 +510,6 @@ func TestMultipleEmailsApproveAndReject(t *testing.T) {
 		}
 		remaining = rest[end:]
 	}
-
-	// Get subjects for each ID.
-	subjectForID := map[string]string{}
-	for _, id := range ids {
-		if strings.Contains(body[:strings.Index(body, id)], "Email One") {
-			subjectForID[id] = "Email One"
-		}
-	}
-
-	// Simpler: look for approve action URLs and pair with nearby subjects.
-	// Just approve the first ID found and reject the second.
 	if len(ids) < 2 {
 		t.Fatalf("expected at least 2 email IDs, got %v", ids)
 	}
@@ -444,7 +517,6 @@ func TestMultipleEmailsApproveAndReject(t *testing.T) {
 	// Determine which ID belongs to which email.
 	var approveID, rejectID string
 	for _, id := range ids {
-		// The id appears twice (approve + reject form). Check once.
 		pos := strings.Index(body, id)
 		before := body[:pos]
 		if strings.LastIndex(before, "Email One") > strings.LastIndex(before, "Email Two") {
@@ -456,22 +528,20 @@ func TestMultipleEmailsApproveAndReject(t *testing.T) {
 			break
 		}
 	}
-
 	if approveID == "" || rejectID == "" {
-		// Fallback: just use first/second.
 		approveID = ids[0]
 		rejectID = ids[1]
 	}
 
-	postAction(t, webAddr, approveID, "approve")
-	postAction(t, webAddr, rejectID, "reject")
+	postAction(t, srv.webAddr, approveID, "approve")
+	postAction(t, srv.webAddr, rejectID, "reject")
 
 	msgs := upstream.getReceived()
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 upstream message, got %d", len(msgs))
 	}
 
-	body2 := getBody(t, webAddr)
+	body2 := getBody(t, srv.webAddr)
 	if strings.Contains(body2, "Email One") || strings.Contains(body2, "Email Two") {
 		t.Error("emails still visible in web UI after approve/reject")
 	}

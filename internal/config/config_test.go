@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestLoadFullConfig(t *testing.T) {
@@ -11,10 +12,13 @@ func TestLoadFullConfig(t *testing.T) {
 	cfgFile := filepath.Join(dir, "config.yaml")
 
 	content := `
-smtp:
-  listen: ":3025"
+imap:
+  host: "imap.example.com"
+  port: 993
   username: "testuser"
   password: "testpass"
+  tls: true
+  poll_interval: "30s"
 relay:
   host: "smtp.relay.com"
   port: 587
@@ -23,6 +27,7 @@ relay:
   tls: true
 web:
   listen: ":8080"
+  api_listen: ":8081"
 db:
   path: "/tmp/test.db"
 `
@@ -35,14 +40,23 @@ db:
 		t.Fatalf("load config: %v", err)
 	}
 
-	if cfg.SMTP.Listen != ":3025" {
-		t.Errorf("smtp.listen = %q, want %q", cfg.SMTP.Listen, ":3025")
+	if cfg.IMAP.Host != "imap.example.com" {
+		t.Errorf("imap.host = %q, want %q", cfg.IMAP.Host, "imap.example.com")
 	}
-	if cfg.SMTP.Username != "testuser" {
-		t.Errorf("smtp.username = %q, want %q", cfg.SMTP.Username, "testuser")
+	if cfg.IMAP.Port != 993 {
+		t.Errorf("imap.port = %d, want 993", cfg.IMAP.Port)
 	}
-	if cfg.SMTP.Password != "testpass" {
-		t.Errorf("smtp.password = %q, want %q", cfg.SMTP.Password, "testpass")
+	if cfg.IMAP.Username != "testuser" {
+		t.Errorf("imap.username = %q, want %q", cfg.IMAP.Username, "testuser")
+	}
+	if cfg.IMAP.Password != "testpass" {
+		t.Errorf("imap.password = %q, want %q", cfg.IMAP.Password, "testpass")
+	}
+	if !cfg.IMAP.TLS {
+		t.Error("imap.tls = false, want true")
+	}
+	if cfg.IMAP.PollInterval != 30*time.Second {
+		t.Errorf("imap.poll_interval = %v, want 30s", cfg.IMAP.PollInterval)
 	}
 	if cfg.Relay.Host != "smtp.relay.com" {
 		t.Errorf("relay.host = %q, want %q", cfg.Relay.Host, "smtp.relay.com")
@@ -61,6 +75,9 @@ db:
 	}
 	if cfg.Web.Listen != ":8080" {
 		t.Errorf("web.listen = %q, want %q", cfg.Web.Listen, ":8080")
+	}
+	if cfg.Web.APIListen != ":8081" {
+		t.Errorf("web.api_listen = %q, want %q", cfg.Web.APIListen, ":8081")
 	}
 	if cfg.DB.Path != "/tmp/test.db" {
 		t.Errorf("db.path = %q, want %q", cfg.DB.Path, "/tmp/test.db")
@@ -84,14 +101,23 @@ relay:
 		t.Fatalf("load config: %v", err)
 	}
 
-	if cfg.SMTP.Listen != ":2525" {
-		t.Errorf("default smtp.listen = %q, want %q", cfg.SMTP.Listen, ":2525")
+	if cfg.IMAP.Port != 993 {
+		t.Errorf("default imap.port = %d, want 993", cfg.IMAP.Port)
+	}
+	if !cfg.IMAP.TLS {
+		t.Error("default imap.tls = false, want true")
+	}
+	if cfg.IMAP.PollInterval != 60*time.Second {
+		t.Errorf("default imap.poll_interval = %v, want 60s", cfg.IMAP.PollInterval)
 	}
 	if cfg.Relay.Port != 587 {
 		t.Errorf("default relay.port = %d, want 587", cfg.Relay.Port)
 	}
 	if cfg.Web.Listen != ":8080" {
 		t.Errorf("default web.listen = %q, want %q", cfg.Web.Listen, ":8080")
+	}
+	if cfg.Web.APIListen != ":8081" {
+		t.Errorf("default web.api_listen = %q, want :8081", cfg.Web.APIListen)
 	}
 	if cfg.DB.Path != "mailescrow.db" {
 		t.Errorf("default db.path = %q, want %q", cfg.DB.Path, "mailescrow.db")
@@ -103,8 +129,8 @@ func TestLoadMissingFileIsOK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing config file should not error, got: %v", err)
 	}
-	if cfg.SMTP.Listen != ":2525" {
-		t.Errorf("default smtp.listen = %q, want :2525", cfg.SMTP.Listen)
+	if cfg.IMAP.Port != 993 {
+		t.Errorf("default imap.port = %d, want 993", cfg.IMAP.Port)
 	}
 }
 
@@ -113,8 +139,8 @@ func TestLoadEmptyPathIsOK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("empty path should not error, got: %v", err)
 	}
-	if cfg.SMTP.Listen != ":2525" {
-		t.Errorf("default smtp.listen = %q, want :2525", cfg.SMTP.Listen)
+	if cfg.IMAP.Port != 993 {
+		t.Errorf("default imap.port = %d, want 993", cfg.IMAP.Port)
 	}
 }
 
@@ -133,15 +159,19 @@ func TestLoadInvalidYAML(t *testing.T) {
 }
 
 func TestEnvVarsOverrideDefaults(t *testing.T) {
-	t.Setenv("MAILESCROW_SMTP_LISTEN", ":9025")
-	t.Setenv("MAILESCROW_SMTP_USERNAME", "envuser")
-	t.Setenv("MAILESCROW_SMTP_PASSWORD", "envpass")
+	t.Setenv("MAILESCROW_IMAP_HOST", "imap.env.com")
+	t.Setenv("MAILESCROW_IMAP_PORT", "143")
+	t.Setenv("MAILESCROW_IMAP_USERNAME", "envuser")
+	t.Setenv("MAILESCROW_IMAP_PASSWORD", "envpass")
+	t.Setenv("MAILESCROW_IMAP_TLS", "false")
+	t.Setenv("MAILESCROW_IMAP_POLL_INTERVAL", "120s")
 	t.Setenv("MAILESCROW_RELAY_HOST", "relay.env.com")
 	t.Setenv("MAILESCROW_RELAY_PORT", "465")
 	t.Setenv("MAILESCROW_RELAY_USERNAME", "relayenv")
 	t.Setenv("MAILESCROW_RELAY_PASSWORD", "relayenvpass")
 	t.Setenv("MAILESCROW_RELAY_TLS", "true")
 	t.Setenv("MAILESCROW_WEB_LISTEN", ":9080")
+	t.Setenv("MAILESCROW_API_LISTEN", ":9081")
 	t.Setenv("MAILESCROW_DB_PATH", "/tmp/env.db")
 
 	cfg, err := Load("")
@@ -149,14 +179,23 @@ func TestEnvVarsOverrideDefaults(t *testing.T) {
 		t.Fatalf("load: %v", err)
 	}
 
-	if cfg.SMTP.Listen != ":9025" {
-		t.Errorf("smtp.listen = %q, want :9025", cfg.SMTP.Listen)
+	if cfg.IMAP.Host != "imap.env.com" {
+		t.Errorf("imap.host = %q, want imap.env.com", cfg.IMAP.Host)
 	}
-	if cfg.SMTP.Username != "envuser" {
-		t.Errorf("smtp.username = %q, want envuser", cfg.SMTP.Username)
+	if cfg.IMAP.Port != 143 {
+		t.Errorf("imap.port = %d, want 143", cfg.IMAP.Port)
 	}
-	if cfg.SMTP.Password != "envpass" {
-		t.Errorf("smtp.password = %q, want envpass", cfg.SMTP.Password)
+	if cfg.IMAP.Username != "envuser" {
+		t.Errorf("imap.username = %q, want envuser", cfg.IMAP.Username)
+	}
+	if cfg.IMAP.Password != "envpass" {
+		t.Errorf("imap.password = %q, want envpass", cfg.IMAP.Password)
+	}
+	if cfg.IMAP.TLS {
+		t.Error("imap.tls = true, want false")
+	}
+	if cfg.IMAP.PollInterval != 120*time.Second {
+		t.Errorf("imap.poll_interval = %v, want 120s", cfg.IMAP.PollInterval)
 	}
 	if cfg.Relay.Host != "relay.env.com" {
 		t.Errorf("relay.host = %q, want relay.env.com", cfg.Relay.Host)
@@ -176,6 +215,9 @@ func TestEnvVarsOverrideDefaults(t *testing.T) {
 	if cfg.Web.Listen != ":9080" {
 		t.Errorf("web.listen = %q, want :9080", cfg.Web.Listen)
 	}
+	if cfg.Web.APIListen != ":9081" {
+		t.Errorf("web.api_listen = %q, want :9081", cfg.Web.APIListen)
+	}
 	if cfg.DB.Path != "/tmp/env.db" {
 		t.Errorf("db.path = %q, want /tmp/env.db", cfg.DB.Path)
 	}
@@ -184,17 +226,17 @@ func TestEnvVarsOverrideDefaults(t *testing.T) {
 func TestEnvVarsOverrideConfigFile(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(cfgFile, []byte("smtp:\n  listen: \":3025\"\n"), 0644); err != nil {
+	if err := os.WriteFile(cfgFile, []byte("imap:\n  host: \"imap.file.com\"\n"), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
-	t.Setenv("MAILESCROW_SMTP_LISTEN", ":9999")
+	t.Setenv("MAILESCROW_IMAP_HOST", "imap.env.com")
 
 	cfg, err := Load(cfgFile)
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if cfg.SMTP.Listen != ":9999" {
-		t.Errorf("smtp.listen = %q, want :9999 (env should override file)", cfg.SMTP.Listen)
+	if cfg.IMAP.Host != "imap.env.com" {
+		t.Errorf("imap.host = %q, want imap.env.com (env should override file)", cfg.IMAP.Host)
 	}
 }

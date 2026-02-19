@@ -13,8 +13,8 @@ go mod download
 ## Running tests
 
 ```bash
-go test ./...            # all tests
-go test -race ./...      # with race detector (matches CI)
+go test ./...              # all tests
+go test -race ./...        # with race detector (matches CI)
 go test ./integration/...  # integration tests only
 ```
 

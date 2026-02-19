@@ -1,17 +1,21 @@
-smtp:
-  listen: ":2525"
-  username: "mailescrow"
+imap:
+  host: "imap.example.com"
+  port: 993
+  username: "user@example.com"
   password: "changeme"
+  tls: true
+  poll_interval: "60s"
 
 relay:
   host: "smtp.example.com"
   port: 465
-  username: "relay-user"
-  password: "relay-password"
+  username: "user@example.com"
+  password: "changeme"
   tls: true
 
-grpc:
-  listen: ":9090"
+web:
+  listen: ":8080"
+  api_listen: ":8081"
 
 db:
   path: "mailescrow.db"
