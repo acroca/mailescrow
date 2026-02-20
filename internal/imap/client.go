@@ -65,7 +65,7 @@ func (c *Client) connect() (*imapclient.Client, error) {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
 	if err := ic.Login(c.username, c.password).Wait(); err != nil {
-		ic.Close()
+		_ = ic.Close()
 		return nil, fmt.Errorf("login: %w", err)
 	}
 	return ic, nil

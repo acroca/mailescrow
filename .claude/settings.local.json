@@ -9,9 +9,8 @@
       "WebFetch(domain:tip.golang.org)",
       "Bash(go version:*)",
       "Bash(go mod tidy:*)",
-      "Bash(golangci-lint run:*)",
       "Bash(gh release list:*)",
-      "Bash(golangci-lint:*)"
+      "Bash(go tool golangci-lint:*)"
     ]
   }
 }

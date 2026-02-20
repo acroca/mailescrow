@@ -1,2 +1,9 @@
 [tools]
 go = "1.26.0"
+
+[tasks.lint]
+run = [
+  "gofmt -w .",
+  "go vet ./...",
+  "go tool golangci-lint run --fix",
+]

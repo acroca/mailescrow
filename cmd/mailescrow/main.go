@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -17,17 +18,23 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	configPath := flag.String("config", "config.yaml", "path to configuration file")
 	flag.Parse()
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		return fmt.Errorf("load config: %w", err)
 	}
 
 	st, err := store.New(cfg.DB.Path)
 	if err != nil {
-		log.Fatalf("Failed to open store: %v", err)
+		return fmt.Errorf("open store: %w", err)
 	}
 	defer func() {
 		if err := st.Close(); err != nil {
@@ -37,13 +44,14 @@ func main() {
 
 	r := relay.New(cfg.Relay.Host, cfg.Relay.Port, cfg.Relay.Username, cfg.Relay.Password, cfg.Relay.TLS)
 
+	ctx := context.Background()
+
 	var imapClient *imap.Client
 	if cfg.IMAP.Host != "" {
 		imapClient = imap.New(cfg.IMAP.Host, cfg.IMAP.Port, cfg.IMAP.Username, cfg.IMAP.Password, cfg.IMAP.TLS)
 
-		ctx := context.Background()
 		if err := imapClient.EnsureFolders(ctx); err != nil {
-			log.Fatalf("Failed to ensure IMAP folders: %v", err)
+			return fmt.Errorf("ensure IMAP folders: %w", err)
 		}
 		log.Printf("IMAP folders verified on %s", cfg.IMAP.Host)
 
@@ -75,6 +83,7 @@ func main() {
 		log.Printf("Web server shutdown: %v", err)
 	}
 	log.Println("Stopped")
+	return nil
 }
 
 func runIMAPPoller(ctx context.Context, client *imap.Client, st store.EmailStore, interval time.Duration) {
