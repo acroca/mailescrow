@@ -19,7 +19,7 @@ type Config struct {
 
 type IMAPConfig struct {
 	Host         string        `yaml:"host"`
-	Port         int           `yaml:"port"`          // default: 993
+	Port         int           `yaml:"port"` // default: 993
 	Username     string        `yaml:"username"`
 	Password     string        `yaml:"password"`
 	TLS          bool          `yaml:"tls"`           // default: true
