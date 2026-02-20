@@ -25,6 +25,7 @@ go tool golangci-lint run ./...
 - `internal/web/` — Two HTTP servers: web UI (`:8080`) and REST API (`:8081`)
 - `internal/web/templates/` — HTML templates (embedded via `//go:embed`)
 - `integration/` — End-to-end tests (no real IMAP; IMAP ops skipped via nil client)
+- `skill.md` — AI agent skill file describing the REST API (include in agent system prompts)
 
 ## Architecture
 

@@ -132,6 +132,10 @@ Response `200 OK`:
 
 Each call **consumes** the returned emails — they are deleted from the database after being returned (and moved to `mailescrow/read` in IMAP). Returns `[]` when nothing is waiting.
 
+### AI skill file
+
+`skill.md` at the project root documents the API in [skill.md format](https://www.mintlify.com/blog/skill-md) for AI agents. Include its contents in your agent's system prompt so it knows how to interact with mailescrow.
+
 ## Docker
 
 ```bash
