@@ -82,12 +82,13 @@ POST http://localhost:8081/api/emails
 Content-Type: application/json
 
 {
-  "from": "agent@example.com",
   "to": ["recipient@example.com"],
   "subject": "Reservation enquiry",
   "body": "Hi, do you have a table for two on Friday?"
 }
 ```
+
+`to` and `subject` are required. The sender is always `relay.username` (optionally displayed as `relay.from_name`).
 
 Response `201 Created`:
 ```json
@@ -95,6 +96,19 @@ Response `201 Created`:
 ```
 
 The email appears in the web UI as **outbound pending**. Approving it sends it via SMTP relay; rejecting it discards it.
+
+### Count pending emails
+
+```
+GET http://localhost:8081/api/emails/pending/count
+```
+
+Response `200 OK`:
+```json
+{"count": 3}
+```
+
+Returns the number of emails (in both directions) currently awaiting human approval. This is a read-only operation — it does not consume or change any emails.
 
 ### Receive approved inbound emails
 
@@ -157,9 +171,10 @@ If `imap.host` is empty, inbound polling is disabled.
 |-----------------------------------|---------------------------|----------|------------------------------------------|
 | `MAILESCROW_RELAY_HOST`           | `relay.host`              | —        | Upstream SMTP host                       |
 | `MAILESCROW_RELAY_PORT`           | `relay.port`              | `587`    | Upstream SMTP port                       |
-| `MAILESCROW_RELAY_USERNAME`       | `relay.username`          | —        | Upstream SMTP username                   |
+| `MAILESCROW_RELAY_USERNAME`       | `relay.username`          | —        | Upstream SMTP username (used as sender)  |
 | `MAILESCROW_RELAY_PASSWORD`       | `relay.password`          | —        | Upstream SMTP password                   |
 | `MAILESCROW_RELAY_TLS`            | `relay.tls`               | `false`  | Use implicit TLS (e.g. port 465)         |
+| `MAILESCROW_RELAY_FROM_NAME`      | `relay.from_name`         | —        | Display name for outbound From header    |
 
 ### Web / API
 
@@ -186,6 +201,7 @@ relay:
   username: "user@example.com"
   password: "secret"
   tls: true
+  from_name: "My Service"  # optional; emails sent as: "My Service" <user@example.com>
 
 web:
   listen: ":8080"

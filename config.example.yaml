@@ -12,6 +12,7 @@ relay:
   username: "user@example.com"
   password: "changeme"
   tls: true
+  from_name: "My Service"  # optional display name; emails sent as: "My Service" <user@example.com>
 
 web:
   listen: ":8080"

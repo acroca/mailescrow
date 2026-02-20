@@ -33,21 +33,25 @@ type IMAPMover interface {
 
 // Server is the HTTP web server.
 type Server struct {
-	st     store.EmailStore
-	relay  relay.Sender
-	imap   IMAPMover // may be nil if IMAP not configured
-	webSrv *http.Server
-	apiSrv *http.Server
-	t      *template.Template
+	st       store.EmailStore
+	relay    relay.Sender
+	imap     IMAPMover // may be nil if IMAP not configured
+	fromAddr string    // relay sender address used as MAIL FROM and From header
+	fromName string    // optional display name for outbound From header
+	webSrv   *http.Server
+	apiSrv   *http.Server
+	t        *template.Template
 }
 
 // New creates a new web Server. imapClient may be nil if IMAP is not configured.
-func New(st store.EmailStore, r relay.Sender, imapClient IMAPMover) *Server {
+// fromAddr is the relay account address used as the outbound sender.
+// fromName is an optional display name; when set emails are sent as "fromName" <fromAddr>.
+func New(st store.EmailStore, r relay.Sender, imapClient IMAPMover, fromAddr, fromName string) *Server {
 	funcMap := template.FuncMap{
 		"join": strings.Join,
 	}
 	t := template.Must(template.New("index.html").Funcs(funcMap).Parse(indexHTML))
-	s := &Server{st: st, relay: r, imap: imapClient, t: t}
+	s := &Server{st: st, relay: r, imap: imapClient, fromAddr: fromAddr, fromName: fromName, t: t}
 
 	webMux := http.NewServeMux()
 	webMux.HandleFunc("GET /", s.handleList)
@@ -58,6 +62,7 @@ func New(st store.EmailStore, r relay.Sender, imapClient IMAPMover) *Server {
 	apiMux := http.NewServeMux()
 	apiMux.HandleFunc("POST /api/emails", s.handleCreateEmail)
 	apiMux.HandleFunc("GET /api/emails", s.handleGetEmails)
+	apiMux.HandleFunc("GET /api/emails/pending/count", s.handlePendingCount)
 	s.apiSrv = &http.Server{Handler: apiMux}
 
 	return s
@@ -133,8 +138,8 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 			log.Printf("approve email %s: %v", id, err)
 			return
 		}
-		if s.imap != nil && email.IMAPMessageID != "" {
-			if err := s.imap.MoveMessage(ctx, email.IMAPMessageID, folderReceived, folderApproved); err != nil {
+		if s.imap != nil && email.IMAPMessageID != "" && email.IMAPMailbox != "" {
+			if err := s.imap.MoveMessage(ctx, email.IMAPMessageID, email.IMAPMailbox, folderApproved); err != nil {
 				log.Printf("IMAP move email %s to approved: %v", id, err)
 			} else if err := s.st.UpdateIMAPMailbox(ctx, id, folderApproved); err != nil {
 				log.Printf("update imap mailbox for %s: %v", id, err)
@@ -158,8 +163,8 @@ func (s *Server) handleReject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if email.Direction == store.DirectionInbound && s.imap != nil && email.IMAPMessageID != "" {
-		if err := s.imap.MoveMessage(ctx, email.IMAPMessageID, folderReceived, folderRejected); err != nil {
+	if email.Direction == store.DirectionInbound && s.imap != nil && email.IMAPMessageID != "" && email.IMAPMailbox != "" {
+		if err := s.imap.MoveMessage(ctx, email.IMAPMessageID, email.IMAPMailbox, folderRejected); err != nil {
 			log.Printf("IMAP move email %s to rejected: %v", id, err)
 		}
 	}
@@ -172,8 +177,33 @@ func (s *Server) handleReject(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+// formatFromHeader returns an RFC 2822 From header value. If name is empty,
+// addr is returned as-is. Otherwise it returns "name" <addr> with the name
+// double-quoted and internal quotes/backslashes escaped.
+func formatFromHeader(name, addr string) string {
+	if name == "" {
+		return addr
+	}
+	name = strings.ReplaceAll(name, `\`, `\\`)
+	name = strings.ReplaceAll(name, `"`, `\"`)
+	return fmt.Sprintf(`"%s" <%s>`, name, addr)
+}
+
+func (s *Server) handlePendingCount(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	emails, err := s.st.ListPending(ctx)
+	if err != nil {
+		http.Error(w, "failed to list pending emails", http.StatusInternalServerError)
+		log.Printf("list pending emails for count: %v", err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]int{"count": len(emails)}); err != nil {
+		log.Printf("encode pending count: %v", err)
+	}
+}
+
 type createEmailRequest struct {
-	From    string   `json:"from"`
 	To      []string `json:"to"`
 	Subject string   `json:"subject"`
 	Body    string   `json:"body"`
@@ -190,8 +220,8 @@ func (s *Server) handleCreateEmail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	if req.From == "" || len(req.To) == 0 || req.Subject == "" {
-		http.Error(w, "from, to, and subject are required", http.StatusBadRequest)
+	if len(req.To) == 0 || req.Subject == "" {
+		http.Error(w, "to and subject are required", http.StatusBadRequest)
 		return
 	}
 
@@ -200,13 +230,13 @@ func (s *Server) handleCreateEmail(w http.ResponseWriter, r *http.Request) {
 		"Date: %s\r\nMessage-Id: <%s@mailescrow>\r\nFrom: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s",
 		time.Now().UTC().Format(time.RFC1123Z),
 		uuid.New().String(),
-		req.From,
+		formatFromHeader(s.fromName, s.fromAddr),
 		strings.Join(req.To, ", "),
 		req.Subject,
 		req.Body,
 	)
 
-	id, err := s.st.SaveOutbound(ctx, req.From, req.To, req.Subject, req.Body, []byte(rawMessage))
+	id, err := s.st.SaveOutbound(ctx, s.fromAddr, req.To, req.Subject, req.Body, []byte(rawMessage))
 	if err != nil {
 		http.Error(w, "failed to save email", http.StatusInternalServerError)
 		log.Printf("save outbound email: %v", err)

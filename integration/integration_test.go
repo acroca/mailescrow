@@ -217,10 +217,9 @@ func postAction(t *testing.T, webAddr, id, action string) {
 	}
 }
 
-func postAPIEmail(t *testing.T, webAddr, from, to, subject, body string) string {
+func postAPIEmail(t *testing.T, webAddr, to, subject, body string) string {
 	t.Helper()
 	payload := map[string]interface{}{
-		"from":    from,
 		"to":      []string{to},
 		"subject": subject,
 		"body":    body,
@@ -269,7 +268,7 @@ func startTestServer(t *testing.T, st store.EmailStore, r relay.Sender) testServ
 	t.Helper()
 	webAddr := freeAddr(t)
 	apiAddr := freeAddr(t)
-	srv := web.New(st, r, nil) // nil imapClient — no IMAP in integration tests
+	srv := web.New(st, r, nil, "sender@example.com", "") // nil imapClient — no IMAP in integration tests
 	go srv.Serve(webAddr)
 	go srv.ServeAPI(apiAddr)
 	t.Cleanup(func() { srv.Shutdown(t.Context()) }) //nolint:errcheck
@@ -304,7 +303,7 @@ func TestOutboundApproveFlow(t *testing.T) {
 	srv := startTestServer(t, st, r)
 
 	// Submit outbound email via API.
-	postAPIEmail(t, srv.apiAddr, "sender@example.com", "recipient@example.com", "Integration Test", "This is an integration test email.")
+	postAPIEmail(t, srv.apiAddr, "recipient@example.com", "Integration Test", "This is an integration test email.")
 
 	// Check it appears in web UI as pending.
 	body := getBody(t, srv.webAddr)
@@ -330,7 +329,7 @@ func TestOutboundApproveFlow(t *testing.T) {
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 upstream message, got %d", len(msgs))
 	}
-	if msgs[0].From != "sender@example.com" {
+	if msgs[0].From != "sender@example.com" { // matches fromAddr passed to web.New
 		t.Errorf("upstream from = %q, want sender@example.com", msgs[0].From)
 	}
 	if !strings.Contains(msgs[0].Data, "Subject: Integration Test") {
@@ -356,7 +355,7 @@ func TestOutboundRejectFlow(t *testing.T) {
 
 	srv := startTestServer(t, st, r)
 
-	postAPIEmail(t, srv.apiAddr, "sender@example.com", "recipient@example.com", "Rejected Email", "This should be rejected.")
+	postAPIEmail(t, srv.apiAddr, "recipient@example.com", "Rejected Email", "This should be rejected.")
 
 	body := getBody(t, srv.webAddr)
 	id := extractID(body, "reject")
@@ -471,6 +470,53 @@ func TestInboundRejectFlow(t *testing.T) {
 	}
 }
 
+// TestPendingCount: GET /api/emails/pending/count returns the right number
+func TestPendingCount(t *testing.T) {
+	st := newTestStore(t)
+	r := relay.New("127.0.0.1", 1, "", "", false)
+	srv := startTestServer(t, st, r)
+
+	getPendingCount := func() int {
+		t.Helper()
+		resp, err := http.Get("http://" + srv.apiAddr + "/api/emails/pending/count")
+		if err != nil {
+			t.Fatalf("GET /api/emails/pending/count: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /api/emails/pending/count: status %d, want 200", resp.StatusCode)
+		}
+		var result struct {
+			Count int `json:"count"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		return result.Count
+	}
+
+	if n := getPendingCount(); n != 0 {
+		t.Errorf("initial count = %d, want 0", n)
+	}
+
+	postAPIEmail(t, srv.apiAddr, "b@example.com", "First", "body")
+	if n := getPendingCount(); n != 1 {
+		t.Errorf("after 1 email count = %d, want 1", n)
+	}
+
+	postAPIEmail(t, srv.apiAddr, "b@example.com", "Second", "body")
+	if n := getPendingCount(); n != 2 {
+		t.Errorf("after 2 emails count = %d, want 2", n)
+	}
+
+	body := getBody(t, srv.webAddr)
+	id := extractID(body, "reject")
+	postAction(t, srv.webAddr, id, "reject")
+	if n := getPendingCount(); n != 1 {
+		t.Errorf("after reject count = %d, want 1", n)
+	}
+}
+
 // TestMixedApproveAndReject: multiple outbound emails with mixed actions
 func TestMixedApproveAndReject(t *testing.T) {
 	upstream := startUpstreamSMTP(t)
@@ -483,8 +529,8 @@ func TestMixedApproveAndReject(t *testing.T) {
 
 	srv := startTestServer(t, st, r)
 
-	postAPIEmail(t, srv.apiAddr, "sender@example.com", "rcpt1@example.com", "Email One", "Body of Email One")
-	postAPIEmail(t, srv.apiAddr, "sender@example.com", "rcpt2@example.com", "Email Two", "Body of Email Two")
+	postAPIEmail(t, srv.apiAddr, "rcpt1@example.com", "Email One", "Body of Email One")
+	postAPIEmail(t, srv.apiAddr, "rcpt2@example.com", "Email Two", "Body of Email Two")
 
 	body := getBody(t, srv.webAddr)
 	if !strings.Contains(body, "Email One") || !strings.Contains(body, "Email Two") {

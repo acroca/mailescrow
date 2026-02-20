@@ -32,6 +32,7 @@ type RelayConfig struct {
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
 	TLS      bool   `yaml:"tls"`
+	FromName string `yaml:"from_name"` // optional display name, e.g. "My Service"
 }
 
 type WebConfig struct {
@@ -123,6 +124,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v, ok := envStr("MAILESCROW_RELAY_TLS"); ok {
 		cfg.Relay.TLS, _ = strconv.ParseBool(v)
+	}
+	if v, ok := envStr("MAILESCROW_RELAY_FROM_NAME"); ok {
+		cfg.Relay.FromName = v
 	}
 	if v, ok := envStr("MAILESCROW_WEB_LISTEN"); ok {
 		cfg.Web.Listen = v

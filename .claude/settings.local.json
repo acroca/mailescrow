@@ -10,7 +10,8 @@
       "Bash(go version:*)",
       "Bash(go mod tidy:*)",
       "Bash(gh release list:*)",
-      "Bash(go tool golangci-lint:*)"
+      "Bash(go tool golangci-lint:*)",
+      "Bash(grep:*)"
     ]
   }
 }

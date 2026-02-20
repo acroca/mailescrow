@@ -3,11 +3,13 @@ package imap
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
 	"net"
 	"net/mail"
+	"os"
 	"strconv"
 	"strings"
 
@@ -54,12 +56,18 @@ func New(host string, port int, username, password string, useTLS bool) *Client 
 
 func (c *Client) connect() (*imapclient.Client, error) {
 	addr := net.JoinHostPort(c.host, strconv.Itoa(c.port))
+
+	var opts *imapclient.Options
+	if os.Getenv("MAILESCROW_IMAP_DEBUG") != "" {
+		opts = &imapclient.Options{DebugWriter: os.Stderr}
+	}
+
 	var ic *imapclient.Client
 	var err error
 	if c.useTLS {
-		ic, err = imapclient.DialTLS(addr, nil)
+		ic, err = imapclient.DialTLS(addr, opts)
 	} else {
-		ic, err = imapclient.DialInsecure(addr, nil)
+		ic, err = imapclient.DialInsecure(addr, opts)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
@@ -72,29 +80,23 @@ func (c *Client) connect() (*imapclient.Client, error) {
 }
 
 // EnsureFolders creates the four mailescrow/* folders if they don't exist.
+// It uses CREATE-or-ignore rather than LIST to avoid Gmail closing the
+// connection when the wildcard pattern matches nothing.
 func (c *Client) EnsureFolders(_ context.Context) error {
 	ic, err := c.connect()
 	if err != nil {
 		return err
 	}
-	defer ic.Logout().Wait() //nolint:errcheck
-
-	listData, err := ic.List("", "mailescrow/*", nil).Collect()
-	if err != nil {
-		return fmt.Errorf("list folders: %w", err)
-	}
-
-	existing := make(map[string]bool, len(listData))
-	for _, d := range listData {
-		existing[d.Mailbox] = true
-	}
+	defer func() { _ = ic.Logout().Wait() }()
 
 	folders := []string{FolderReceived, FolderApproved, FolderRejected, FolderRead}
 	for _, folder := range folders {
-		if !existing[folder] {
-			if err := ic.Create(folder, nil).Wait(); err != nil {
-				return fmt.Errorf("create folder %s: %w", folder, err)
+		if err := ic.Create(folder, nil).Wait(); err != nil {
+			var imapErr *goimap.Error
+			if errors.As(err, &imapErr) && imapErr.Code == goimap.ResponseCodeAlreadyExists {
+				continue
 			}
+			return fmt.Errorf("create folder %s: %w", folder, err)
 		}
 	}
 	return nil
@@ -107,7 +109,7 @@ func (c *Client) Poll(_ context.Context, knownMessageIDs []string) ([]FetchedEma
 	if err != nil {
 		return nil, err
 	}
-	defer ic.Logout().Wait() //nolint:errcheck
+	defer func() { _ = ic.Logout().Wait() }()
 
 	if _, err := ic.Select("INBOX", nil).Wait(); err != nil {
 		return nil, fmt.Errorf("select INBOX: %w", err)
@@ -185,7 +187,7 @@ func (c *Client) MoveMessage(_ context.Context, messageID, fromMailbox, toMailbo
 	if err != nil {
 		return err
 	}
-	defer ic.Logout().Wait() //nolint:errcheck
+	defer func() { _ = ic.Logout().Wait() }()
 
 	if _, err := ic.Select(fromMailbox, nil).Wait(); err != nil {
 		return fmt.Errorf("select %s: %w", fromMailbox, err)

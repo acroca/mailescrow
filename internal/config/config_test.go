@@ -25,6 +25,7 @@ relay:
   username: "relayuser"
   password: "relaypass"
   tls: true
+  from_name: "My Service"
 web:
   listen: ":8080"
   api_listen: ":8081"
@@ -72,6 +73,9 @@ db:
 	}
 	if !cfg.Relay.TLS {
 		t.Error("relay.tls = false, want true")
+	}
+	if cfg.Relay.FromName != "My Service" {
+		t.Errorf("relay.from_name = %q, want %q", cfg.Relay.FromName, "My Service")
 	}
 	if cfg.Web.Listen != ":8080" {
 		t.Errorf("web.listen = %q, want %q", cfg.Web.Listen, ":8080")
@@ -170,6 +174,7 @@ func TestEnvVarsOverrideDefaults(t *testing.T) {
 	t.Setenv("MAILESCROW_RELAY_USERNAME", "relayenv")
 	t.Setenv("MAILESCROW_RELAY_PASSWORD", "relayenvpass")
 	t.Setenv("MAILESCROW_RELAY_TLS", "true")
+	t.Setenv("MAILESCROW_RELAY_FROM_NAME", "Env Service")
 	t.Setenv("MAILESCROW_WEB_LISTEN", ":9080")
 	t.Setenv("MAILESCROW_API_LISTEN", ":9081")
 	t.Setenv("MAILESCROW_DB_PATH", "/tmp/env.db")
@@ -211,6 +216,9 @@ func TestEnvVarsOverrideDefaults(t *testing.T) {
 	}
 	if !cfg.Relay.TLS {
 		t.Error("relay.tls = false, want true")
+	}
+	if cfg.Relay.FromName != "Env Service" {
+		t.Errorf("relay.from_name = %q, want Env Service", cfg.Relay.FromName)
 	}
 	if cfg.Web.Listen != ":9080" {
 		t.Errorf("web.listen = %q, want :9080", cfg.Web.Listen)
