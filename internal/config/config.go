@@ -38,6 +38,7 @@ type RelayConfig struct {
 type WebConfig struct {
 	Listen    string `yaml:"listen"`     // web UI, default :8080
 	APIListen string `yaml:"api_listen"` // REST API, default :8081
+	Password  string `yaml:"password"`   // if set, web UI requires HTTP Basic Auth with this password
 }
 
 type DBConfig struct {
@@ -54,7 +55,7 @@ type DBConfig struct {
 //	MAILESCROW_IMAP_PASSWORD      MAILESCROW_IMAP_TLS           MAILESCROW_IMAP_POLL_INTERVAL
 //	MAILESCROW_RELAY_HOST         MAILESCROW_RELAY_PORT         MAILESCROW_RELAY_USERNAME
 //	MAILESCROW_RELAY_PASSWORD     MAILESCROW_RELAY_TLS
-//	MAILESCROW_WEB_LISTEN         MAILESCROW_API_LISTEN
+//	MAILESCROW_WEB_LISTEN         MAILESCROW_API_LISTEN         MAILESCROW_WEB_PASSWORD
 //	MAILESCROW_DB_PATH
 func Load(path string) (*Config, error) {
 	cfg := &Config{
@@ -133,6 +134,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v, ok := envStr("MAILESCROW_API_LISTEN"); ok {
 		cfg.Web.APIListen = v
+	}
+	if v, ok := envStr("MAILESCROW_WEB_PASSWORD"); ok {
+		cfg.Web.Password = v
 	}
 	if v, ok := envStr("MAILESCROW_DB_PATH"); ok {
 		cfg.DB.Path = v

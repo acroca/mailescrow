@@ -17,6 +17,7 @@ relay:
 web:
   listen: ":8080"
   api_listen: ":8081"
+  password: ""  # if set, web UI requires HTTP Basic Auth with this password; API is always open
 
 db:
   path: "mailescrow.db"

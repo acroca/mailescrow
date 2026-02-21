@@ -268,7 +268,7 @@ func startTestServer(t *testing.T, st store.EmailStore, r relay.Sender) testServ
 	t.Helper()
 	webAddr := freeAddr(t)
 	apiAddr := freeAddr(t)
-	srv := web.New(st, r, nil, "sender@example.com", "") // nil imapClient — no IMAP in integration tests
+	srv := web.New(st, r, nil, "sender@example.com", "", "") // nil imapClient — no IMAP in integration tests
 	go srv.Serve(webAddr)
 	go srv.ServeAPI(apiAddr)
 	t.Cleanup(func() { srv.Shutdown(t.Context()) }) //nolint:errcheck

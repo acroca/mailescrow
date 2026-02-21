@@ -60,7 +60,7 @@ func run() error {
 		log.Printf("IMAP not configured; inbound polling disabled")
 	}
 
-	webSrv := web.New(st, r, imapClient, cfg.Relay.Username, cfg.Relay.FromName)
+	webSrv := web.New(st, r, imapClient, cfg.Relay.Username, cfg.Relay.FromName, cfg.Web.Password)
 
 	go func() {
 		if err := webSrv.Serve(cfg.Web.Listen); err != nil {

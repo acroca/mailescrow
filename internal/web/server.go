@@ -38,6 +38,7 @@ type Server struct {
 	imap     IMAPMover // may be nil if IMAP not configured
 	fromAddr string    // relay sender address used as MAIL FROM and From header
 	fromName string    // optional display name for outbound From header
+	password string    // if non-empty, web UI requires HTTP Basic Auth with this password
 	webSrv   *http.Server
 	apiSrv   *http.Server
 	t        *template.Template
@@ -46,17 +47,18 @@ type Server struct {
 // New creates a new web Server. imapClient may be nil if IMAP is not configured.
 // fromAddr is the relay account address used as the outbound sender.
 // fromName is an optional display name; when set emails are sent as "fromName" <fromAddr>.
-func New(st store.EmailStore, r relay.Sender, imapClient IMAPMover, fromAddr, fromName string) *Server {
+// password, if non-empty, enables HTTP Basic Auth on the web UI; the API is never gated.
+func New(st store.EmailStore, r relay.Sender, imapClient IMAPMover, fromAddr, fromName, password string) *Server {
 	funcMap := template.FuncMap{
 		"join": strings.Join,
 	}
 	t := template.Must(template.New("index.html").Funcs(funcMap).Parse(indexHTML))
-	s := &Server{st: st, relay: r, imap: imapClient, fromAddr: fromAddr, fromName: fromName, t: t}
+	s := &Server{st: st, relay: r, imap: imapClient, fromAddr: fromAddr, fromName: fromName, password: password, t: t}
 
 	webMux := http.NewServeMux()
-	webMux.HandleFunc("GET /", s.handleList)
-	webMux.HandleFunc("POST /email/{id}/approve", s.handleApprove)
-	webMux.HandleFunc("POST /email/{id}/reject", s.handleReject)
+	webMux.HandleFunc("GET /", s.basicAuth(s.handleList))
+	webMux.HandleFunc("POST /email/{id}/approve", s.basicAuth(s.handleApprove))
+	webMux.HandleFunc("POST /email/{id}/reject", s.basicAuth(s.handleReject))
 	s.webSrv = &http.Server{Handler: webMux}
 
 	apiMux := http.NewServeMux()
@@ -96,6 +98,25 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return err1
 	}
 	return err2
+}
+
+// basicAuth wraps a handler with HTTP Basic Auth when s.password is non-empty.
+// Any username is accepted; only the password is checked.
+// If no password is configured the handler is called directly.
+func (s *Server) basicAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.password == "" {
+			next(w, r)
+			return
+		}
+		_, pass, ok := r.BasicAuth()
+		if !ok || pass != s.password {
+			w.Header().Set("WWW-Authenticate", `Basic realm="mailescrow"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {

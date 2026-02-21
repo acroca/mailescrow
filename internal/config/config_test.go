@@ -29,6 +29,7 @@ relay:
 web:
   listen: ":8080"
   api_listen: ":8081"
+  password: "hunter2"
 db:
   path: "/tmp/test.db"
 `
@@ -82,6 +83,9 @@ db:
 	}
 	if cfg.Web.APIListen != ":8081" {
 		t.Errorf("web.api_listen = %q, want %q", cfg.Web.APIListen, ":8081")
+	}
+	if cfg.Web.Password != "hunter2" {
+		t.Errorf("web.password = %q, want %q", cfg.Web.Password, "hunter2")
 	}
 	if cfg.DB.Path != "/tmp/test.db" {
 		t.Errorf("db.path = %q, want %q", cfg.DB.Path, "/tmp/test.db")
@@ -177,6 +181,7 @@ func TestEnvVarsOverrideDefaults(t *testing.T) {
 	t.Setenv("MAILESCROW_RELAY_FROM_NAME", "Env Service")
 	t.Setenv("MAILESCROW_WEB_LISTEN", ":9080")
 	t.Setenv("MAILESCROW_API_LISTEN", ":9081")
+	t.Setenv("MAILESCROW_WEB_PASSWORD", "envpass123")
 	t.Setenv("MAILESCROW_DB_PATH", "/tmp/env.db")
 
 	cfg, err := Load("")
@@ -225,6 +230,9 @@ func TestEnvVarsOverrideDefaults(t *testing.T) {
 	}
 	if cfg.Web.APIListen != ":9081" {
 		t.Errorf("web.api_listen = %q, want :9081", cfg.Web.APIListen)
+	}
+	if cfg.Web.Password != "envpass123" {
+		t.Errorf("web.password = %q, want envpass123", cfg.Web.Password)
 	}
 	if cfg.DB.Path != "/tmp/env.db" {
 		t.Errorf("db.path = %q, want /tmp/env.db", cfg.DB.Path)

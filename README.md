@@ -215,11 +215,14 @@ Leave `imap.host` empty to disable inbound polling entirely.
 
 ### Web / API
 
-| Environment variable      | Config key        | Default         | Description             |
-|---------------------------|-------------------|-----------------|-------------------------|
-| `MAILESCROW_WEB_LISTEN`   | `web.listen`      | `:8080`         | Web UI listen address   |
-| `MAILESCROW_API_LISTEN`   | `web.api_listen`  | `:8081`         | API listen address      |
-| `MAILESCROW_DB_PATH`      | `db.path`         | `mailescrow.db` | SQLite database path    |
+| Environment variable        | Config key        | Default         | Description                                      |
+|-----------------------------|-------------------|-----------------|--------------------------------------------------|
+| `MAILESCROW_WEB_LISTEN`     | `web.listen`      | `:8080`         | Web UI listen address                            |
+| `MAILESCROW_API_LISTEN`     | `web.api_listen`  | `:8081`         | API listen address                               |
+| `MAILESCROW_WEB_PASSWORD`   | `web.password`    | —               | Password for web UI HTTP Basic Auth (recommended) |
+| `MAILESCROW_DB_PATH`        | `db.path`         | `mailescrow.db` | SQLite database path                             |
+
+If `web.password` is set, browsers are prompted for credentials before any web UI page loads. The REST API on `:8081` is never gated — agents authenticate via network isolation, not passwords.
 
 ### Config file
 
@@ -243,6 +246,7 @@ relay:
 web:
   listen: ":8080"
   api_listen: ":8081"
+  password: "your-password"  # protects the web UI with HTTP Basic Auth
 
 db:
   path: "mailescrow.db"
