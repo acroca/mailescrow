@@ -470,13 +470,13 @@ func TestInboundRejectFlow(t *testing.T) {
 	}
 }
 
-// TestPendingCount: GET /api/emails/pending/count returns the right number
+// TestPendingCount: GET /api/emails/pending/count returns the right IDs
 func TestPendingCount(t *testing.T) {
 	st := newTestStore(t)
 	r := relay.New("127.0.0.1", 1, "", "", false)
 	srv := startTestServer(t, st, r)
 
-	getPendingCount := func() int {
+	getPendingIDs := func() []string {
 		t.Helper()
 		resp, err := http.Get("http://" + srv.apiAddr + "/api/emails/pending/count")
 		if err != nil {
@@ -487,33 +487,34 @@ func TestPendingCount(t *testing.T) {
 			t.Fatalf("GET /api/emails/pending/count: status %d, want 200", resp.StatusCode)
 		}
 		var result struct {
-			Count int `json:"count"`
+			IDs []string `json:"ids"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 			t.Fatalf("decode response: %v", err)
 		}
-		return result.Count
+		return result.IDs
 	}
 
-	if n := getPendingCount(); n != 0 {
-		t.Errorf("initial count = %d, want 0", n)
+	if ids := getPendingIDs(); len(ids) != 0 {
+		t.Errorf("initial ids = %v, want empty", ids)
 	}
 
 	postAPIEmail(t, srv.apiAddr, "b@example.com", "First", "body")
-	if n := getPendingCount(); n != 1 {
-		t.Errorf("after 1 email count = %d, want 1", n)
+	if ids := getPendingIDs(); len(ids) != 1 {
+		t.Errorf("after 1 email ids len = %d, want 1", len(ids))
 	}
 
 	postAPIEmail(t, srv.apiAddr, "b@example.com", "Second", "body")
-	if n := getPendingCount(); n != 2 {
-		t.Errorf("after 2 emails count = %d, want 2", n)
+	ids := getPendingIDs()
+	if len(ids) != 2 {
+		t.Errorf("after 2 emails ids len = %d, want 2", len(ids))
 	}
 
 	body := getBody(t, srv.webAddr)
 	id := extractID(body, "reject")
 	postAction(t, srv.webAddr, id, "reject")
-	if n := getPendingCount(); n != 1 {
-		t.Errorf("after reject count = %d, want 1", n)
+	if ids := getPendingIDs(); len(ids) != 1 {
+		t.Errorf("after reject ids len = %d, want 1", len(ids))
 	}
 }
 

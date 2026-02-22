@@ -153,10 +153,10 @@ GET /api/emails/pending/count
 ```json
 200 OK
 
-{"count": 3}
+{"ids": ["550e8400-e29b-41d4-a716-446655440000", "..."]}
 ```
 
-Read-only. Safe to poll. Use this to wait for a human to review your outbound message before sending another, or to signal that attention is needed.
+Read-only. Safe to poll. Returns an array of IDs for all emails currently waiting for approval. Use this to wait for a human to review your outbound message before sending another, or to signal that attention is needed.
 
 ### Receive approved inbound emails
 

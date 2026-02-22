@@ -47,7 +47,7 @@ IMAP folder lifecycle: `INBOX` → `mailescrow/received` → `mailescrow/approve
 - Config env vars: `MAILESCROW_IMAP_*`, `MAILESCROW_RELAY_*`, `MAILESCROW_WEB_LISTEN`, `MAILESCROW_API_LISTEN`, `MAILESCROW_DB_PATH`
 - `web.New(st, r, imapClient, fromAddr, fromName, password)` — `fromAddr` is `cfg.Relay.Username`; `fromName` is `cfg.Relay.FromName` (optional display name); `password` is `cfg.Web.Password` (if non-empty, enables HTTP Basic Auth on the web UI only)
 - `POST /api/emails` takes `to`, `subject`, `body` — no `from` field; sender is always `relay.username`
-- `GET /api/emails/pending/count` returns `{"count": N}` — read-only, does not consume emails
+- `GET /api/emails/pending/count` returns `{"ids": [...]}` — read-only, does not consume emails
 
 ## Agent checklist
 

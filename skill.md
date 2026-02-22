@@ -72,9 +72,9 @@ Returns `[]` when no approved emails are waiting. Returns all available emails i
 
 > **This call is destructive.** Emails are permanently deleted from mailescrow after being returned. Do not call this endpoint unless you are ready to process and store the results.
 
-## Check pending count
+## Check pending IDs
 
-Returns the number of emails (in both directions) currently waiting for human approval. Safe to poll — does not consume or modify anything.
+Returns the IDs of all emails (in both directions) currently waiting for human approval. Safe to poll — does not consume or modify anything.
 
 ```
 GET {base_url}/api/emails/pending/count
@@ -82,16 +82,16 @@ GET {base_url}/api/emails/pending/count
 
 **Response `200 OK`:**
 ```json
-{ "count": 3 }
+{ "ids": ["550e8400-e29b-41d4-a716-446655440000", "..."] }
 ```
 
-Use this to avoid sending more emails while previous ones are still awaiting approval, or to notify a human that their attention is needed.
+Returns an empty array when nothing is waiting. Use this to avoid sending more emails while previous ones are still awaiting approval, or to notify a human that their attention is needed.
 
 ## Gotchas
 
-- **Outbound emails are never sent immediately.** There is no way to bypass the approval step. If you need a reply quickly, call `GET /api/emails/pending/count` to check whether your previous email has been reviewed yet.
+- **Outbound emails are never sent immediately.** There is no way to bypass the approval step. If you need a reply quickly, call `GET /api/emails/pending/count` and check whether the returned `ids` array is empty to know if your previous email has been reviewed yet.
 - **`GET /api/emails` consumes the emails.** Call it only when you are ready to act on the results. If you call it and discard the response, those emails are gone.
 - **You cannot retrieve an email by ID.** The `id` in the submit response is not queryable. Pending emails can only be managed through the web UI.
-- **There is no delivery confirmation.** A `201` response means the email was accepted into the queue, not that it was sent. Watch `GET /api/emails/pending/count` to confirm the human has reviewed it.
+- **There is no delivery confirmation.** A `201` response means the email was accepted into the queue, not that it was sent. Watch `GET /api/emails/pending/count` (check that the returned `ids` array is empty) to confirm the human has reviewed it.
 - **Sender address is fixed.** The `from` address is configured on the server (`relay.username`) — you cannot override it per request.
 - **Multiple recipients are supported.** Pass multiple addresses in the `to` array.

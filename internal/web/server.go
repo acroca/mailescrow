@@ -218,9 +218,13 @@ func (s *Server) handlePendingCount(w http.ResponseWriter, r *http.Request) {
 		log.Printf("list pending emails for count: %v", err)
 		return
 	}
+	ids := make([]string, len(emails))
+	for i, e := range emails {
+		ids[i] = e.ID
+	}
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]int{"count": len(emails)}); err != nil {
-		log.Printf("encode pending count: %v", err)
+	if err := json.NewEncoder(w).Encode(map[string][]string{"ids": ids}); err != nil {
+		log.Printf("encode pending ids: %v", err)
 	}
 }
 
