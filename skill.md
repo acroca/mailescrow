@@ -1,10 +1,17 @@
+---
+name: mailescrow
+description: Human-in-the-loop email proxy. Use this skill to send and receive emails through a human approval gate. Every message — outbound and inbound — is held until a human approves it.
+homepage: https://github.com/acroca/mailescrow
+metadata: {"clawdbot":{"requires":{"bins":[],"env":["MAILESCROW_API_URL"]}}}
+---
+
 # mailescrow
 
 > Human-in-the-loop email proxy. Use this skill to send and receive emails through a human approval gate. Every message — outbound and inbound — is held until a human approves it.
 
 ## Overview
 
-mailescrow exposes a REST API on a configurable address (default `http://localhost:8081`). All requests are unauthenticated and use JSON.
+mailescrow exposes a REST API on a configurable address (`$MAILESCROW_API_URL`). All requests are unauthenticated and use JSON.
 
 Outbound emails you submit are **not sent immediately** — a human must approve them in the web UI first.
 Inbound emails you receive have **already been approved** by a human before they reach you.
@@ -13,16 +20,16 @@ Inbound emails you receive have **already been approved** by a human before they
 
 | I want to…                                      | Use                                      |
 |-------------------------------------------------|------------------------------------------|
-| Send an email                                   | `POST /api/emails`                       |
-| Check whether any replies have arrived          | `GET /api/emails`                        |
-| Check how many emails are waiting for approval  | `GET /api/emails/pending/count`          |
+| Send an email                                   | `POST $MAILESCROW_API_URL/api/emails`                       |
+| Check whether any replies have arrived          | `GET $MAILESCROW_API_URL/api/emails`                        |
+| Check how many emails are waiting for approval  | `GET $MAILESCROW_API_URL/api/emails/pending/count`          |
 
 ## Send an email
 
 Submit an outbound email for human review. The email is held until approved.
 
 ```
-POST {base_url}/api/emails
+POST $MAILESCROW_API_URL/api/emails
 Content-Type: application/json
 ```
 
@@ -51,7 +58,7 @@ The returned `id` is informational only — you cannot query or cancel a pending
 Fetch all inbound emails that a human has approved for you to read.
 
 ```
-GET {base_url}/api/emails
+GET $MAILESCROW_API_URL/api/emails
 ```
 
 **Response `200 OK`:**
@@ -77,7 +84,7 @@ Returns `[]` when no approved emails are waiting. Returns all available emails i
 Returns the IDs of all emails (in both directions) currently waiting for human approval. Safe to poll — does not consume or modify anything.
 
 ```
-GET {base_url}/api/emails/pending/count
+GET $MAILESCROW_API_URL/api/emails/pending/count
 ```
 
 **Response `200 OK`:**
@@ -89,9 +96,9 @@ Returns an empty array when nothing is waiting. Use this to avoid sending more e
 
 ## Gotchas
 
-- **Outbound emails are never sent immediately.** There is no way to bypass the approval step. If you need a reply quickly, call `GET /api/emails/pending/count` and check whether the returned `ids` array is empty to know if your previous email has been reviewed yet.
-- **`GET /api/emails` consumes the emails.** Call it only when you are ready to act on the results. If you call it and discard the response, those emails are gone.
+- **Outbound emails are never sent immediately.** There is no way to bypass the approval step. If you need a reply quickly, call `GET $MAILESCROW_API_URL/api/emails/pending/count` and check whether the returned `ids` array is empty to know if your previous email has been reviewed yet.
+- **`GET $MAILESCROW_API_URL/api/emails` consumes the emails.** Call it only when you are ready to act on the results. If you call it and discard the response, those emails are gone.
 - **You cannot retrieve an email by ID.** The `id` in the submit response is not queryable. Pending emails can only be managed through the web UI.
-- **There is no delivery confirmation.** A `201` response means the email was accepted into the queue, not that it was sent. Watch `GET /api/emails/pending/count` (check that the returned `ids` array is empty) to confirm the human has reviewed it.
+- **There is no delivery confirmation.** A `201` response means the email was accepted into the queue, not that it was sent. Watch `GET $MAILESCROW_API_URL/api/emails/pending/count` (check that the returned `ids` array is empty) to confirm the human has reviewed it.
 - **Sender address is fixed.** The `from` address is configured on the server (`relay.username`) — you cannot override it per request.
 - **Multiple recipients are supported.** Pass multiple addresses in the `to` array.

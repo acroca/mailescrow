@@ -183,7 +183,7 @@ GET /api/emails
 
 ### Agent skill file
 
-`skill.md` at the project root documents the full API in [skill.md format](https://www.mintlify.com/blog/skill-md). Drop its contents into your agent's system prompt so it knows how to use mailescrow.
+`SKILL.md` at the project root documents the full API in [Agent Skills format](https://agentskills.io/specification). Drop its contents into your agent's system prompt so it knows how to use mailescrow.
 
 ## Configuration
 
